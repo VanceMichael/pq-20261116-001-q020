@@ -1,19 +1,24 @@
+import { normalizeLinkRules } from "../feed/link-rules.js";
+
 export class FeedRepository {
   constructor(database) {
     this.database = database;
     this.insertFeed = database.prepare(`INSERT INTO feeds
-      (feed_id, base_url, allowed_hosts_json, minimum_items, missing_threshold, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
+      (feed_id, base_url, allowed_hosts_json, minimum_items, missing_threshold, link_rules_json, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(feed_id) DO UPDATE SET base_url=excluded.base_url,
       allowed_hosts_json=excluded.allowed_hosts_json, minimum_items=excluded.minimum_items,
-      missing_threshold=excluded.missing_threshold, updated_at=excluded.updated_at`);
+      missing_threshold=excluded.missing_threshold,
+      link_rules_json=COALESCE(excluded.link_rules_json, feeds.link_rules_json),
+      updated_at=excluded.updated_at`);
     this.getFeed = database.prepare("SELECT * FROM feeds WHERE feed_id = ?");
     this.listFeeds = database.prepare("SELECT * FROM feeds ORDER BY feed_id");
     this.updateSuccess = database.prepare(`UPDATE feeds SET last_accepted_at=?, last_item_count=?, updated_at=?
       WHERE feed_id=?`);
+    this.updateLinkRules = database.prepare(`UPDATE feeds SET link_rules_json=?, updated_at=? WHERE feed_id=?`);
   }
 
-  register({ feedId, baseUrl, allowedHosts = [], minimumItems = 3, missingThreshold = 3 }, now) {
+  register({ feedId, baseUrl, allowedHosts = [], minimumItems = 3, missingThreshold = 3, linkRules = undefined }, now) {
     validateFeedId(feedId);
     const base = new URL(baseUrl);
     if (!new Set(["http:", "https:"]).has(base.protocol)) throw new TypeError("feed base URL must use HTTP or HTTPS");
@@ -31,7 +36,8 @@ export class FeedRepository {
     if (!hosts.some((host) => base.hostname === host || base.hostname.endsWith(`.${host}`))) {
       throw new TypeError("feed base host must be included in allowedHosts");
     }
-    this.insertFeed.run(feedId, base.href, JSON.stringify(hosts), minimumItems, missingThreshold, now, now);
+    const rulesJson = linkRules === undefined ? null : JSON.stringify(normalizeLinkRules(linkRules));
+    this.insertFeed.run(feedId, base.href, JSON.stringify(hosts), minimumItems, missingThreshold, rulesJson, now, now);
     return this.get(feedId);
   }
 
@@ -46,6 +52,12 @@ export class FeedRepository {
 
   markAccepted(feedId, capturedAt, itemCount) {
     this.updateSuccess.run(capturedAt, itemCount, capturedAt, feedId);
+  }
+
+  saveLinkRules(feedId, rules, now) {
+    const normalized = normalizeLinkRules(rules);
+    this.updateLinkRules.run(JSON.stringify(normalized), now, feedId);
+    return normalized;
   }
 }
 
@@ -65,6 +77,7 @@ function mapFeed(row) {
     lastAcceptedAt: row.last_accepted_at,
     lastItemCount: row.last_item_count,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    linkRules: row.link_rules_json ? JSON.parse(row.link_rules_json) : { enabled: false, canonicalKey: "item", aliasKeys: ["item_id"] }
   };
 }

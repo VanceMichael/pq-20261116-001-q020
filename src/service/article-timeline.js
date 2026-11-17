@@ -17,6 +17,7 @@ export class ArticleTimelineService {
         captureId: row.capture_id,
         capturedAt: row.captured_at,
         sourceIndex: row.source_index,
+        observedUrl: row.observed_url ?? null,
         listingSize: row.normalized_count,
         untilNextObservationSeconds: gapMs === null ? null : Number((gapMs / 1000).toFixed(3))
       };

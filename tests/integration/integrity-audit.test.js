@@ -10,7 +10,8 @@ test("reports a fresh archive as consistent across SQLite and application invari
   assert.equal(report.status, "consistent");
   assert.ok(report.checks.every((check) => check.passed));
   assert.deepEqual(report.checks.map((check) => check.name), [
-    "sqlite_integrity", "foreign_keys", "capture_item_counts", "article_observation_counts", "feed_watermarks"
+    "sqlite_integrity", "foreign_keys", "capture_item_counts", "article_observation_counts", "feed_watermarks",
+    "capture_observed_urls", "link_identity_members", "quarantine_counters"
   ]);
 });
 

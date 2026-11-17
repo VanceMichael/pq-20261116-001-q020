@@ -120,6 +120,44 @@ async function routeRequest(request, response, archive) {
     const result = archive.articleTimeline(feedId, articleId, url.searchParams.get("limit"));
     return result ? writeJson(response, 200, result) : notFound(response);
   }
+  if (segments.length >= 5 && segments[3] === "link-rules") {
+    return routeLinkRules(request, response, archive, feedId, segments, url);
+  }
+  return notFound(response);
+}
+
+async function routeLinkRules(request, response, archive, feedId, segments, url) {
+  const action = segments[4];
+  if (action === "preview" && request.method === "POST") {
+    const body = await readJson(request);
+    const result = archive.previewLinkRules(feedId, body.rules ?? null);
+    return result ? writeJson(response, 200, result) : notFound(response);
+  }
+  if (action === "activate" && request.method === "POST") {
+    const body = await readJson(request);
+    const result = archive.activateLinkRules(feedId, body.rules ?? null);
+    if (result.status === 404) return notFound(response);
+    return writeJson(response, result.status === 200 ? 200 : result.status, result);
+  }
+  if (action === "conflicts" && request.method === "GET") {
+    const result = archive.listLinkConflicts(feedId);
+    return result ? writeJson(response, 200, { conflicts: result }) : notFound(response);
+  }
+  if (action === "rollback" && request.method === "POST") {
+    const result = archive.deactivateLinkRules(feedId);
+    if (result.status === 404) return notFound(response);
+    return writeJson(response, 200, result);
+  }
+  if (action === "events" && request.method === "GET") {
+    const result = archive.linkRuleEvents(feedId, url.searchParams.get("limit"));
+    return result ? writeJson(response, 200, { events: result }) : notFound(response);
+  }
+  if (segments.length === 7 && action === "conflicts" && segments[6] === "resolve" && request.method === "POST") {
+    const identityId = Number(segments[5]);
+    const result = archive.resolveLinkConflict(feedId, identityId, await readJson(request));
+    if (result.status === 404) return notFound(response);
+    return writeJson(response, result.status, result);
+  }
   return notFound(response);
 }
 

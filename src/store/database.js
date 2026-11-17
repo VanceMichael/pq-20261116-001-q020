@@ -2,7 +2,7 @@ import { DatabaseSync } from "node:sqlite";
 import { dirname, resolve } from "node:path";
 import { mkdirSync } from "node:fs";
 
-export const SCHEMA_VERSION = 1;
+export const SCHEMA_VERSION = 2;
 
 export function openDatabase(filename) {
   const path = resolve(filename);
@@ -93,6 +93,63 @@ export function migrate(database) {
     );
     CREATE INDEX IF NOT EXISTS review_events_article_time ON review_events(article_id, event_id DESC);
     PRAGMA user_version = 1;
+    COMMIT;
+  `);
+  if (database.prepare("PRAGMA user_version").get().user_version === 1) migrateLinkRules(database);
+}
+
+// v2 migration: non-destructive link-rule identity layer. Existing article and
+// capture rows are never rewritten; historical evidence is backfilled instead.
+function migrateLinkRules(database) {
+  database.exec(`
+    BEGIN IMMEDIATE;
+    ALTER TABLE feeds ADD COLUMN link_rules_json TEXT;
+    ALTER TABLE captures ADD COLUMN quarantined_count INTEGER NOT NULL DEFAULT 0;
+    ALTER TABLE capture_items ADD COLUMN observed_url TEXT;
+    UPDATE capture_items SET observed_url = (
+      SELECT a.canonical_url FROM articles a WHERE a.article_id = capture_items.article_id
+    ) WHERE observed_url IS NULL;
+    CREATE TABLE IF NOT EXISTS link_identities (
+      identity_id INTEGER PRIMARY KEY,
+      feed_id TEXT NOT NULL REFERENCES feeds(feed_id),
+      canonical_url TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('active', 'quarantined')),
+      created_at TEXT NOT NULL,
+      resolved_at TEXT,
+      UNIQUE(feed_id, canonical_url)
+    );
+    CREATE INDEX IF NOT EXISTS link_identities_feed_status ON link_identities(feed_id, status);
+    CREATE TABLE IF NOT EXISTS link_identity_members (
+      identity_id INTEGER NOT NULL REFERENCES link_identities(identity_id) ON DELETE CASCADE,
+      article_id INTEGER NOT NULL REFERENCES articles(article_id) UNIQUE,
+      member_url TEXT NOT NULL,
+      role TEXT NOT NULL CHECK(role IN ('primary', 'alias')),
+      linked_at TEXT NOT NULL,
+      PRIMARY KEY(identity_id, article_id)
+    );
+    CREATE TABLE IF NOT EXISTS quarantined_observations (
+      observation_id INTEGER PRIMARY KEY,
+      feed_id TEXT NOT NULL REFERENCES feeds(feed_id),
+      identity_id INTEGER NOT NULL REFERENCES link_identities(identity_id),
+      capture_id INTEGER NOT NULL REFERENCES captures(capture_id) ON DELETE CASCADE,
+      source_index INTEGER NOT NULL,
+      observed_url TEXT NOT NULL,
+      canonical_url TEXT NOT NULL,
+      title TEXT NOT NULL,
+      published_at TEXT,
+      observed_at TEXT NOT NULL,
+      UNIQUE(capture_id, source_index)
+    );
+    CREATE INDEX IF NOT EXISTS quarantined_observations_feed ON quarantined_observations(feed_id, observed_at DESC);
+    CREATE TABLE IF NOT EXISTS link_rule_events (
+      event_id INTEGER PRIMARY KEY,
+      feed_id TEXT NOT NULL,
+      event_type TEXT NOT NULL CHECK(event_type IN ('preview', 'activate', 'resolve', 'deactivate')),
+      detail_json TEXT NOT NULL,
+      changed_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS link_rule_events_feed_time ON link_rule_events(feed_id, event_id DESC);
+    PRAGMA user_version = 2;
     COMMIT;
   `);
 }

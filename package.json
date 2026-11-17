@@ -10,6 +10,7 @@
   "scripts": {
     "test": "node --experimental-sqlite --test tests/unit/*.test.js tests/integration/*.test.js",
     "build": "node scripts/check-syntax.js",
+    "verify:link-rules": "node --experimental-sqlite scripts/verify-link-rules.js",
     "demo": "node --experimental-sqlite src/cli.js demo fixtures/rolling-feed.html"
   }
 }

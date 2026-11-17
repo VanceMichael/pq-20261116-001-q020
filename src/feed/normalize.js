@@ -1,6 +1,8 @@
+import { applyLinkRules } from "./link-rules.js";
+
 const TRACKING_KEYS = new Set(["from", "source", "spm", "share", "ref", "utm_source", "utm_medium", "utm_campaign"]);
 
-export function canonicalizeUrl(input, baseUrl, allowedHosts = []) {
+export function canonicalizeUrl(input, baseUrl, allowedHosts = [], linkRules = null) {
   let url;
   try {
     url = new URL(input, baseUrl);
@@ -16,6 +18,7 @@ export function canonicalizeUrl(input, baseUrl, allowedHosts = []) {
   for (const key of [...url.searchParams.keys()]) {
     if (TRACKING_KEYS.has(key.toLowerCase())) url.searchParams.delete(key);
   }
+  if (linkRules) applyLinkRules(url, linkRules);
   url.searchParams.sort();
   url.pathname = url.pathname.replace(/\/+/g, "/");
   return url.href;
@@ -35,19 +38,27 @@ export function normalizePublishedAt(input) {
   return parsed.toISOString();
 }
 
-export function normalizeCandidates(candidates, { baseUrl, allowedHosts = [] }) {
+export function normalizeCandidates(candidates, { baseUrl, allowedHosts = [], linkRules = null }) {
   const byUrl = new Map();
   const rejected = [];
   for (const [index, candidate] of candidates.entries()) {
     try {
-      const canonicalUrl = canonicalizeUrl(candidate.href, baseUrl, allowedHosts);
+      // The observed URL applies the global tracking rules only and never the
+      // per-feed identity rewrite, so the link literally seen at capture time
+      // stays locatable even after item_id is unified to item.
+      const observedUrl = canonicalizeUrl(candidate.href, baseUrl, allowedHosts);
+      const canonicalUrl = linkRules
+        ? canonicalizeUrl(candidate.href, baseUrl, allowedHosts, linkRules)
+        : observedUrl;
       const title = cleanTitle(candidate.title);
       const publishedAt = normalizePublishedAt(candidate.publishedAt);
       const current = byUrl.get(canonicalUrl);
       if (!current) {
-        byUrl.set(canonicalUrl, { canonicalUrl, title, publishedAt, sourceIndex: index });
-      } else if (publishedAt && (!current.publishedAt || publishedAt < current.publishedAt)) {
-        current.publishedAt = publishedAt;
+        byUrl.set(canonicalUrl, { canonicalUrl, observedUrl, title, publishedAt, sourceIndex: index });
+      } else {
+        if (publishedAt && (!current.publishedAt || publishedAt < current.publishedAt)) {
+          current.publishedAt = publishedAt;
+        }
       }
     } catch (error) {
       rejected.push({ index, reason: error.message });

@@ -13,6 +13,8 @@ import { ReviewService } from "./review-service.js";
 import { CsvExporter } from "../export/csv-exporter.js";
 import { ArticleTimelineService } from "./article-timeline.js";
 import { IntegrityAuditService } from "./integrity-audit.js";
+import { LinkIdentityRepository } from "../store/link-identity-repository.js";
+import { LinkRuleService } from "./link-rule-service.js";
 
 export class NewsArchive {
   constructor(filename, options = {}) {
@@ -23,11 +25,20 @@ export class NewsArchive {
     this.articles = new ArticleRepository(this.database);
     this.fetches = new FetchRepository(this.database);
     this.reviews = new ReviewRepository(this.database);
+    this.identities = new LinkIdentityRepository(this.database);
+    this.linkRuleService = new LinkRuleService({
+      database: this.database,
+      feeds: this.feeds,
+      identities: this.identities,
+      articles: this.articles,
+      clock: this.clock
+    });
     this.imports = new ImportService({
       database: this.database,
       feeds: this.feeds,
       captures: this.captures,
       articles: this.articles,
+      linkRules: this.linkRuleService,
       clock: this.clock
     });
     this.refreshes = new RefreshService({
@@ -47,6 +58,30 @@ export class NewsArchive {
 
   registerFeed(input) {
     return this.feeds.register(input, this.now());
+  }
+
+  previewLinkRules(feedId, rules) {
+    return this.linkRuleService.preview(feedId, rules);
+  }
+
+  activateLinkRules(feedId, rules) {
+    return this.linkRuleService.activate(feedId, rules);
+  }
+
+  listLinkConflicts(feedId) {
+    return this.linkRuleService.listConflicts(feedId);
+  }
+
+  resolveLinkConflict(feedId, identityId, input) {
+    return this.linkRuleService.resolve(feedId, identityId, input);
+  }
+
+  deactivateLinkRules(feedId) {
+    return this.linkRuleService.deactivate(feedId);
+  }
+
+  linkRuleEvents(feedId, limit) {
+    return this.linkRuleService.events(feedId, limit);
   }
 
   importSnapshot(feedId, html, capturedAt) {

@@ -9,6 +9,7 @@ export class CaptureRepository {
       ORDER BY capture_id DESC LIMIT ?`);
     this.latestAccepted = database.prepare(`SELECT capture_id, captured_at, normalized_count FROM captures
       WHERE feed_id=? AND accepted=1 ORDER BY capture_id DESC LIMIT 2`);
+    this.setQuarantineCount = database.prepare("UPDATE captures SET quarantined_count=? WHERE capture_id=?");
   }
 
   findByFingerprint(feedId, fingerprint) {
@@ -31,6 +32,10 @@ export class CaptureRepository {
   acceptedPair(feedId) {
     return this.latestAccepted.all(feedId).map(mapCapture);
   }
+
+  setQuarantinedCount(captureId, count) {
+    this.setQuarantineCount.run(count, captureId);
+  }
 }
 
 function mapCapture(row) {
@@ -44,6 +49,7 @@ function mapCapture(row) {
     normalizedCount: row.normalized_count,
     rejectedCount: row.rejected_count,
     duplicateCount: row.duplicate_count,
+    quarantinedCount: row.quarantined_count ?? 0,
     reason: row.reason
   };
 }
